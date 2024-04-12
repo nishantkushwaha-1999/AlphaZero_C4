@@ -80,9 +80,10 @@ class AlphaZero:
             
             if save_path==None:
                 path = os.path.abspath(os.path.join(os.getcwd())) + '/saved_models'
-                os.makedirs(path, exist_ok=True)
             else:
                 path=save_path
+            
+            os.makedirs(path, exist_ok=True)
             
             torch.save(self.model.state_dict(), f"{path}/model_{iter}_{self.game_env}.pt")
             torch.save(self.optimizer.state_dict(), f"{path}/optimizer_{iter}_{self.game_env}.pt")
