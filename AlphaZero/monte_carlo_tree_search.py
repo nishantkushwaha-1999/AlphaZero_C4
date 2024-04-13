@@ -1,5 +1,6 @@
 import math
 import torch
+from tqdm import tqdm
 import numpy as np
 
 class Node:
@@ -66,48 +67,107 @@ class MCTS:
         self.model = model
         
     @torch.no_grad()
-    def search(self, state):
-        root = Node(self.game, self.args, state, visit_count=1)
+    def search(self, state, n_prallel=False, selfPlayGames=None):
+        if n_prallel == False:
+            root = Node(self.game, self.args, state, visit_count=1)
+            
+            _, policy = self.model(
+                torch.tensor(self.game.get_encoded_state(state), device=self.model.device).unsqueeze(0)
+            )
+            policy = torch.softmax(policy, axis=1).squeeze(0).cpu().numpy()
+            policy = (1 - self.args['dirichlet_epsilon']) * policy + self.args['dirichlet_epsilon'] \
+                * np.random.dirichlet([self.args['dirichlet_alpha']] * self.game.action_size)
         
-        _, policy = self.model(
-            torch.tensor(self.game.get_encoded_state(state), device=self.model.device).unsqueeze(0)
-        )
-        policy = torch.softmax(policy, axis=1).squeeze(0).cpu().numpy()
-        policy = (1 - self.args['dirichlet_epsilon']) * policy + self.args['dirichlet_epsilon'] \
-            * np.random.dirichlet([self.args['dirichlet_alpha']] * self.game.action_size)
+            valid_moves = self.game.get_valid_moves(state)
+            policy *= valid_moves
+            policy /= np.sum(policy)
+            root.expand(policy)
+            
+            for search in range(self.args['num_searches']):
+                # pbar.set_description(f"Searching through game: ")
+                node = root
+                
+                while node.is_fully_expanded():
+                    node = node.select()
+                    
+                value, is_terminal = self.game.get_value_and_terminated(node.state, node.action_taken)
+                value = self.game.get_opponent_value(value)
+                
+                if not is_terminal:
+                    value, policy = self.model(
+                        torch.tensor(self.game.get_encoded_state(node.state), device=self.model.device).unsqueeze(0)
+                    )
+                    policy = torch.softmax(policy, axis=1).squeeze(0).cpu().numpy()
+                    valid_moves = self.game.get_valid_moves(node.state)
+                    policy *= valid_moves
+                    policy /= np.sum(policy)
+                    
+                    value = value.item()
+                    
+                    node.expand(policy)
+                    
+                node.backpropagate(value)    
+                
+                
+            action_probs = np.zeros(self.game.action_size)
+            for child in root.children:
+                action_probs[child.action_taken] = child.visit_count
+            action_probs /= np.sum(action_probs)
+            return action_probs
         
-        valid_moves = self.game.get_valid_moves(state)
-        policy *= valid_moves
-        policy /= np.sum(policy)
-        root.expand(policy)
-        
-        for search in range(self.args['num_searches']):
-            node = root
+        elif n_prallel == True:
+            if type(selfPlayGames) != list:
+                raise ValueError(f"selfPlayGames need to be an array when n_parallel is active. Got {type(selfPlayGames)}")
             
-            while node.is_fully_expanded():
-                node = node.select()
-                
-            value, is_terminal = self.game.get_value_and_terminated(node.state, node.action_taken)
-            value = self.game.get_opponent_value(value)
+            _, policy = self.model(
+                torch.tensor(self.game.get_encoded_state(state), device=self.model.device)
+            )
+            policy = torch.softmax(policy, axis=1).cpu().numpy()
+            policy = (1 - self.args['dirichlet_epsilon']) * policy + self.args['dirichlet_epsilon'] \
+                * np.random.dirichlet([self.args['dirichlet_alpha']] * self.game.action_size, size=policy.shape[0])
             
-            if not is_terminal:
-                value, policy = self.model(
-                    torch.tensor(self.game.get_encoded_state(node.state), device=self.model.device).unsqueeze(0)
-                )
-                policy = torch.softmax(policy, axis=1).squeeze(0).cpu().numpy()
-                valid_moves = self.game.get_valid_moves(node.state)
-                policy *= valid_moves
-                policy /= np.sum(policy)
-                
-                value = value.item()
-                
-                node.expand(policy)
-                
-            node.backpropagate(value)    
+            for i, selfPlayGame in enumerate(selfPlayGames):
+                valid_moves = self.game.get_valid_moves(state[i])
+                gamepolicy = policy[i]
+                gamepolicy *= valid_moves
+                gamepolicy /= np.sum(gamepolicy)
+
+                selfPlayGame.root = Node(self.game, self.args, state[i], visit_count=1)
+                selfPlayGame.root.expand(gamepolicy)
+
+            for search in range(self.args['num_searches']):
+                for selfPlayGame in selfPlayGames:
+                    selfPlayGame.node = None
+                    node = selfPlayGame.root
+
+                    while node.is_fully_expanded():
+                        node = node.select()
+                    
+                    value, is_terminal = self.game.get_value_and_terminated(node.state, node.action_taken)
+                    value = self.game.get_opponent_value(value)
+
+                    if is_terminal:
+                        node.backpropagate(value)
+                    else:
+                        selfPlayGame.node = node
             
-            
-        action_probs = np.zeros(self.game.action_size)
-        for child in root.children:
-            action_probs[child.action_taken] = child.visit_count
-        action_probs /= np.sum(action_probs)
-        return action_probs
+                exp_selfPlayGames = [mapIdx for mapIdx in range(len(selfPlayGames)) if selfPlayGames[mapIdx].node != None]
+
+                if len(exp_selfPlayGames) > 0:
+                    state = np.stack([selfPlayGames[mapIdx].node.state for mapIdx in exp_selfPlayGames])
+                    value, policy = self.model(
+                        torch.tensor(self.game.get_encoded_state(state), device=self.model.device)
+                    )
+                    policy = torch.softmax(policy, axis=1).cpu().numpy()
+                    value = value.cpu().numpy()
+                
+                for i, mapIdx in enumerate(exp_selfPlayGames):
+                    node = selfPlayGames[mapIdx].node
+                    game_value, gamepolicy = value[i], policy[i]
+                    
+                    valid_moves = self.game.get_valid_moves(node.state)
+                    gamepolicy *= valid_moves
+                    gamepolicy /= np.sum(gamepolicy)
+
+                    node.expand(gamepolicy)
+                    node.backpropagate(game_value)

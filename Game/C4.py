@@ -21,8 +21,8 @@ class Game_C4:
                 raise ValueError(f"player: {player} not found. Player must be either -1 or 1")
         
         if str(type(state))=="<class 'numpy.ndarray'>":
-            if state.shape != (self.rows, self.columns):
-                raise ValueError(f"Invalid board passed of shape {state.shape}")
+                if (state.shape[-1] != self.rows) and (state.shape[-2] != self.rows):
+                    raise ValueError(f"Invalid board passed of shape {state.shape}")
         elif state==None:
             pass
         else:
@@ -75,7 +75,7 @@ class Game_C4:
         
     def get_value_and_terminated(self, state, action):
         if self.check_win(state=state, action=action):
-            return 0, True
+            return 1, True
         if np.sum(self.get_valid_moves(state)) == 0:
             return 0, True
         return 0, False
