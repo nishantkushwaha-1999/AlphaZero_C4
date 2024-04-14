@@ -109,7 +109,8 @@ class AlphaZero:
     
     def train(self, gamebuffer, epoch):
         random.shuffle(gamebuffer)
-        for batch_Idx in (pbar:= tqdm(range(0 ,len(gamebuffer), self.args['batch_size']))):
+        net_loss = 0
+        for batch_Idx in (pbar:= tqdm(range(0, len(gamebuffer), self.args['batch_size']))):
             pbar.set_description(f"Epoch {epoch}/{self.args['epochs']}")
             batch = gamebuffer[batch_Idx:min((len(gamebuffer) - 1), (batch_Idx + self.args['batch_size']))]
             try:
@@ -125,14 +126,18 @@ class AlphaZero:
 
                 loss_val = torch.nn.functional.mse_loss(pred_val, values)
                 loss_policy = torch.nn.functional.cross_entropy(pred_action_prob, action_probs)
-                net_loss = loss_val + loss_policy
-                self.net_model_loss = net_loss
+                self.net_model_loss = loss_val + loss_policy
 
                 self.optimizer.zero_grad()
                 self.net_model_loss.backward()
                 self.optimizer.step()
+
+                net_loss += self.net_model_loss.item() * self.args['batch_size']
+                pbar.set_description(f"Epoch {epoch}/{self.args['epochs']} - batch_loss: {self.net_model_loss.item()}")
             except ValueError:
                 pass
+        
+        pbar.set_description(f"Epoch {epoch}/{self.args['epochs']} - loss: {net_loss / len(gamebuffer)}")
     
     def learn(self, model, optimizer, game_env, args, save_path=None, n_parallel=False):
         if not self.reload:
