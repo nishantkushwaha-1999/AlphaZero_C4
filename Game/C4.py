@@ -1,13 +1,16 @@
 import sys
 import pygame
 import numpy as np
+import copy
+from PIL import Image, ImageDraw
 
 class Game_C4:
     def __init__(self):
         self.columns = 7
         self.rows = 6
-        self.action_size = self.columns * 1 # change action dim to double this
+        self.action_size = self.columns * 2 # change action dim to double this
         self.n_similar = 4
+        self.popout = np.zeros(self.columns)
     
     def __repr__(self):
         return "Connect_4"
@@ -21,62 +24,93 @@ class Game_C4:
                 raise ValueError(f"player: {player} not found. Player must be either -1 or 1")
         
         if str(type(state))=="<class 'numpy.ndarray'>":
-                if (state.shape[-1] != self.rows) and (state.shape[-2] != self.rows):
-                    raise ValueError(f"Invalid board passed of shape {state.shape}")
+            if (state.shape[-1] == self.columns) and (state.shape[-2] == self.rows):
+                pass
+            else:
+                raise ValueError(f"Invalid board passed of shape {state.shape}")
         elif state==None:
             pass
         else:
             raise TypeError(f"Ftate must be a {np.array}. state is a {type(state)}")
         
         if action != None:
-            if action not in [i for i in range(self.columns)]:
+            if action not in [i for i in range(self.action_size)]:
                 raise ValueError(f"Action can only be from {[i for i in range(self.columns)]}")
 
     def get_next_state(self, state, action, player):
         self.check_params(state=state, player=player, action=action)
         
-        # Modify for popout rule
-        if self.get_valid_moves(state)[action] == 1:
-            row_idx = sum(state[:, action] == 0) - 1
-            state[row_idx, action] = player
-            return state
+        if self.get_valid_moves(state, player)[action] == 1:
+            if action < self.columns:
+                row_idx = sum(state[:, action] == 0) - 1
+                state[row_idx, action] = player
+                return state
+            else:
+                if state[-1][action - self.columns] == player:
+                    self.popout = copy.deepcopy(state[-1])
+                    state[:, action - self.columns] = np.append(np.array(0), state[:, action - self.columns][:-1])
+                    return state
+                else:
+                    return state
         else:
             return state
+
     
-    def get_valid_moves(self, state):
-        # Modify for popout rule
-        return (state[0] == 0).astype(np.int8)
+    def get_valid_moves(self, state, player):
+        val_moves = np.append((state[0] == 0), (state[-1] == player)).astype(np.int8)
+        return val_moves
     
-    def check_win(self, state, action):
+    def check_win(self, state, action, player):
+        self.check_params(state=state, player=player, action=action)
+        # player = self.get_last_player(state, action)
+
+        for column in range(self.columns):
+            for row in range(self.rows - 3):
+                if state[row,column] == state[row+1,column] == state[row+2,column] == state[row+3,column] == player:
+                    return True
+
+        # horizontal win
+        for row in range(self.rows):
+            for column in range(self.columns - 3):
+                if state[row,column] == state[row,column+1] == state[row,column+2] == state[row,column+3] == player:
+                    return True
+
+        # diagonal top left to bottom right
+        for row in range(self.rows - 3):
+            for column in range(self.columns - 3):
+                if state[row,column] == state[row+1,column+1] == state[row+2,column+2] == state[row+3,column+3] == player:
+                    return True
+
+        # diagonal bottom left to top right
+        for row in range(self.rows - 1,2,-1):
+            for column in range(self.columns - 3):
+                if state[row,column] == state[row-1,column+1] == state[row-2,column+2] == state[row-3,column+3] == player:
+                    return True
+                    
+        return False
+        
+    def get_last_player(self, state, action):
         if action == None:
             return False
         
         self.check_params(state=state, action=action)
         
-        row_idx = sum((state[:, action] == 0).astype(np.int8))
-        col_idx = action
-        player = state[row_idx, col_idx]
-
-        def count(row_offset, col_offset):
-            for i in range(1, self.n_similar):
-                r_idx = row_idx + row_offset * i
-                c_idx = col_idx + col_offset * i
-                if (r_idx<0 or r_idx>=self.rows or c_idx<0, c_idx>=self.columns or state[row_idx, col_idx]!= player):
-                    return i - 1
-        if(
-            count(1, 0) >= self.n_similar - 1
-            or (count(0, 1) + count(0, -1)) >= self.n_similar -1
-            or (count(1, 1) + count(-1, -1)) >= self.n_similar - 1
-            or (count(1, -1) + count(-1, 1)) >= self.n_similar - 1
-        ):
-            return True
+        if action < self.columns:
+            row_idx = sum((state[:, action] == 0).astype(np.int8))
+            
+            if row_idx>=6:
+                return False
+            
+            col_idx = action
+            return state[row_idx, col_idx]
         else:
-            return False
-        
-    def get_value_and_terminated(self, state, action):
-        if self.check_win(state=state, action=action):
+            col_idx = action - self.columns
+            return self.popout[col_idx]
+
+    def get_value_and_terminated(self, state, action, player):
+        if self.check_win(state=state, action=action, player=player):
             return 1, True
-        if np.sum(self.get_valid_moves(state)) == 0:
+        if np.sum(self.get_valid_moves(state, self.get_last_player(state, action))) == 0:
             return 0, True
         return 0, False
     
@@ -131,10 +165,7 @@ class Game_C4:
                     pygame.draw.circle(screen, BLACK, (int(c*SQUARESIZE+SQUARESIZE/2), height-int(r*SQUARESIZE+SQUARESIZE/2)), RADIUS)
         pygame.display.update()
 
-    def render(self, state=None):
-        if state==None:
-            state = self.state.copy()
-        
+    def render(self, state):
         pygame.init()
         screen = pygame.display.set_mode((700,700))
 
@@ -144,6 +175,43 @@ class Game_C4:
                     sys.exit()
                 self.__draw_board(screen, state)
                 pygame.display.update()
+    
+    def render_state(self, state, player):
+        valid_moves = self.get_valid_moves(state, player)
+        valid_moves_in = valid_moves[:self.columns]
+        valid_moves_out = valid_moves[self.columns:]
+        
+        cell_size = 75
+
+        image_width = self.columns * cell_size
+        image_height = self.rows * cell_size
+
+        image = Image.new('RGB', (image_width, image_height), color='grey')
+        draw = ImageDraw.Draw(image)
+
+        for row in range(self.rows):
+            for col in range(self.columns):
+                x0 = col * cell_size + cell_size // 2
+                y0 = row * cell_size + cell_size // 2
+                radius = cell_size // 2 - 7
+                
+                outline = "black"
+                if player == 1:
+                    if row == 0:
+                        if valid_moves_in[col] == 1:
+                            outline = "green"
+                    elif row == (self.rows - 1):
+                        if valid_moves_out[col] == 1:
+                            outline = "green"
+
+                if state[row, col] == 0:
+                    draw.ellipse([(x0 - radius, y0 - radius), (x0 + radius, y0 + radius)], fill='white', outline=outline, width=5)
+                elif state[row, col] == 1:
+                    draw.ellipse([(x0 - radius, y0 - radius), (x0 + radius, y0 + radius)], fill='red', outline=outline, width=5)
+                elif state[row, col] == -1:
+                    draw.ellipse([(x0 - radius, y0 - radius), (x0 + radius, y0 + radius)], fill='black', outline=outline, width=5)
+
+        return image
 
 
 if __name__=="__main__":

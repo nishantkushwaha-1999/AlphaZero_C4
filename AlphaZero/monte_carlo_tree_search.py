@@ -1,16 +1,16 @@
 import math
 import torch
-from tqdm import tqdm
 import numpy as np
 
 class Node:
-    def __init__(self, game, args, state, parent=None, action_taken=None, prior=0, visit_count=0):
+    def __init__(self, game, args, state, player, parent=None, action_taken=None, prior=0, visit_count=0):
         self.game = game
         self.args = args
         self.state = state
         self.parent = parent
         self.action_taken = action_taken
         self.prior = prior
+        self.player = player
         
         self.children = []
         
@@ -46,7 +46,7 @@ class Node:
                 child_state = self.game.get_next_state(child_state, action, 1)
                 child_state = self.game.change_perspective(child_state, player=-1)
 
-                child = Node(self.game, self.args, child_state, self, action, prob)
+                child = Node(self.game, self.args, child_state, -1, self, action, prob)
                 self.children.append(child)
                 
         return child
@@ -67,9 +67,9 @@ class MCTS:
         self.model = model
         
     @torch.no_grad()
-    def search(self, state, n_prallel=False, selfPlayGames=None):
+    def search(self, state, player, n_prallel=False, selfPlayGames=None):
         if n_prallel == False:
-            root = Node(self.game, self.args, state, visit_count=1)
+            root = Node(self.game, self.args, state, player, visit_count=1)
             
             _, policy = self.model(
                 torch.tensor(self.game.get_encoded_state(state), device=self.model.device).unsqueeze(0)
@@ -78,19 +78,18 @@ class MCTS:
             policy = (1 - self.args['dirichlet_epsilon']) * policy + self.args['dirichlet_epsilon'] \
                 * np.random.dirichlet([self.args['dirichlet_alpha']] * self.game.action_size)
         
-            valid_moves = self.game.get_valid_moves(state)
+            valid_moves = self.game.get_valid_moves(state, player)
             policy *= valid_moves
             policy /= np.sum(policy)
             root.expand(policy)
             
             for search in range(self.args['num_searches']):
-                # pbar.set_description(f"Searching through game: ")
                 node = root
                 
                 while node.is_fully_expanded():
                     node = node.select()
                     
-                value, is_terminal = self.game.get_value_and_terminated(node.state, node.action_taken)
+                value, is_terminal = self.game.get_value_and_terminated(node.state, node.action_taken, node.player)
                 value = self.game.get_opponent_value(value)
                 
                 if not is_terminal:
@@ -98,7 +97,7 @@ class MCTS:
                         torch.tensor(self.game.get_encoded_state(node.state), device=self.model.device).unsqueeze(0)
                     )
                     policy = torch.softmax(policy, axis=1).squeeze(0).cpu().numpy()
-                    valid_moves = self.game.get_valid_moves(node.state)
+                    valid_moves = self.game.get_valid_moves(node.state, node.player)
                     policy *= valid_moves
                     policy /= np.sum(policy)
                     
@@ -127,12 +126,12 @@ class MCTS:
                 * np.random.dirichlet([self.args['dirichlet_alpha']] * self.game.action_size, size=policy.shape[0])
             
             for i, selfPlayGame in enumerate(selfPlayGames):
-                valid_moves = self.game.get_valid_moves(state[i])
+                valid_moves = self.game.get_valid_moves(state[i], player)
                 gamepolicy = policy[i]
                 gamepolicy *= valid_moves
                 gamepolicy /= np.sum(gamepolicy)
 
-                selfPlayGame.root = Node(self.game, self.args, state[i], visit_count=1)
+                selfPlayGame.root = Node(self.game, self.args, state[i], player=player, visit_count=1)
                 selfPlayGame.root.expand(gamepolicy)
 
             for search in range(self.args['num_searches']):
@@ -143,7 +142,7 @@ class MCTS:
                     while node.is_fully_expanded():
                         node = node.select()
                     
-                    value, is_terminal = self.game.get_value_and_terminated(node.state, node.action_taken)
+                    value, is_terminal = self.game.get_value_and_terminated(node.state, node.action_taken, node.player)
                     value = self.game.get_opponent_value(value)
 
                     if is_terminal:
@@ -165,7 +164,7 @@ class MCTS:
                     node = selfPlayGames[mapIdx].node
                     game_value, gamepolicy = value[i], policy[i]
                     
-                    valid_moves = self.game.get_valid_moves(node.state)
+                    valid_moves = self.game.get_valid_moves(node.state, node.player)
                     gamepolicy *= valid_moves
                     gamepolicy /= np.sum(gamepolicy)
 

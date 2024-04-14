@@ -17,20 +17,24 @@ class SPG:
         self.node = None
 
 class AlphaZero:
-    def __init__(self, model=None, optimizer=None, game_env=None, args={}):
+    def __init__(self):
+        self.reload = False
+    
+    def __initialize(self, model, optimizer, game_env, args, n_parallel=False):
+        self.args = args
         self.model = model
         self.optimizer = optimizer
         self.game_env = game_env
-        
-        self.args = args
-        self.args['latest_model_path'] = ''
-        self.args['latest_args_path'] = ''
-        self.args['iters_completed'] = 0
+        self.n_parallel = n_parallel
 
+        if not self.reload:
+            self.args['latest_model_path'] = ''
+            self.args['latest_args_path'] = ''
+            self.args['iters_completed'] = 0
+        
         self.mcts = MCTS(game=game_env, args=args, model=model)
         self.net_model_loss = np.inf
-        self.reload = False
-    
+
     def selfPlay(self, pbar):
         memory = []
         player = 1
@@ -38,7 +42,8 @@ class AlphaZero:
 
         while True:
             flip_state = self.game_env.change_perspective(state, player)
-            action_probs = self.mcts.search(flip_state)
+            # action_probs = self.mcts.search(flip_state)
+            action_probs = self.mcts.search(flip_state, player)
 
             memory.append((flip_state, action_probs, player))
             
@@ -47,7 +52,7 @@ class AlphaZero:
             action = np.random.choice(self.game_env.action_size, p=action_probs_mod)
 
             state = self.game_env.get_next_state(state, action, player)
-            value, terminated = self.game_env.get_value_and_terminated(state, action)
+            value, terminated = self.game_env.get_value_and_terminated(state, action, player)
             pbar.set_description(f"{np.sum(state==0), terminated} empty spaces remaining")
 
             if terminated:
@@ -64,7 +69,6 @@ class AlphaZero:
         player = 1
         selfPlayGames = [SPG(self.game_env) for _ in range(self.args['n_parallel_games'])]
         
-        n_fills = self.args['n_parallel_games'] * self.game_env.columns * self.game_env.rows
         while len(selfPlayGames) > 0:
             s = 0
             stack = []
@@ -76,7 +80,7 @@ class AlphaZero:
             
             states = np.stack(stack)
             flipped_states = self.game_env.change_perspective(states, player)
-            self.mcts.search(flipped_states, n_prallel=True, selfPlayGames=selfPlayGames)
+            self.mcts.search(flipped_states, player, n_prallel=True, selfPlayGames=selfPlayGames)
 
             for i in range(len(selfPlayGames))[::-1]:
                 selfPlayGame = selfPlayGames[i]
@@ -93,15 +97,12 @@ class AlphaZero:
                 action = np.random.choice(self.game_env.action_size, p=action_probs_mod)
 
                 selfPlayGame.state = self.game_env.get_next_state(selfPlayGame.state, action, player)
-                value, terminated = self.game_env.get_value_and_terminated(selfPlayGame.state, action)
+                value, terminated = self.game_env.get_value_and_terminated(selfPlayGame.state, action, player)
                 if terminated:
                     for flipped_states_h, action_probs_h, player_h in selfPlayGame.memory:
                         move_vals = value if player_h == player else self.game_env.get_opponent_value(value)
-                        gameHist.append((self.game_env.get_encoded_state(flipped_states_h), action_probs_h, move_vals))
+                        gameHist.append((self.game_env.get_encoded_state(flipped_states_h), move_vals, action_probs_h))
                     del selfPlayGames[i]
-                
-                # n_fills -= np.sum(selfPlayGame.state != 0)
-                # pbar.set_description(f"{n_fills} remaining:")
             
             player = self.game_env.get_opponent(player)
         return gameHist
@@ -109,49 +110,49 @@ class AlphaZero:
     def train(self, gamebuffer, epoch):
         random.shuffle(gamebuffer)
         for batch_Idx in (pbar:= tqdm(range(0 ,len(gamebuffer), self.args['batch_size']))):
-            pbar.set_description(f"Epoch 1/{self.args['epoch']}")
+            pbar.set_description(f"Epoch {epoch}/{self.args['epochs']}")
             batch = gamebuffer[batch_Idx:min((len(gamebuffer) - 1), (batch_Idx + self.args['batch_size']))]
-            states, values, action_probs = zip(*batch)
+            try:
+                states, values, action_probs = zip(*batch)
 
-            states, values, action_probs = np.array(states), np.array(values).reshape(-1, 1), np.array(action_probs)
+                states, values, action_probs = np.array(states), np.array(values).reshape(-1, 1), np.array(action_probs)
 
-            states = torch.tensor(states, dtype=torch.float32, device=self.model.device)
-            values = torch.tensor(values, dtype=torch.float32, device=self.model.device)
-            action_probs = torch.tensor(action_probs, dtype=torch.float32, device=self.model.device)
+                states = torch.tensor(states, dtype=torch.float32, device=self.model.device)
+                values = torch.tensor(values, dtype=torch.float32, device=self.model.device)
+                action_probs = torch.tensor(action_probs, dtype=torch.float32, device=self.model.device)
 
-            pred_val, pred_action_prob = self.model(states)
+                pred_val, pred_action_prob = self.model(states)
 
-            loss_val = torch.nn.functional.mse_loss(pred_val, values)
-            loss_policy = torch.nn.functional.cross_entropy(pred_action_prob, action_probs)
-            net_loss = loss_val + loss_policy
-            self.net_model_loss = copy.deepcopy(net_loss)
+                loss_val = torch.nn.functional.mse_loss(pred_val, values)
+                loss_policy = torch.nn.functional.cross_entropy(pred_action_prob, action_probs)
+                net_loss = loss_val + loss_policy
+                self.net_model_loss = net_loss
 
-            self.optimizer.zero_grad()
-            net_loss.backward()
-            self.optimizer.step()
+                self.optimizer.zero_grad()
+                self.net_model_loss.backward()
+                self.optimizer.step()
+            except ValueError:
+                pass
     
     def learn(self, model, optimizer, game_env, args, save_path=None, n_parallel=False):
-        self.args = args
-        self.model = model
-        self.optimizer = optimizer
-        self.game_env = game_env
-        self.n_parallel = n_parallel
-
         if not self.reload:
-            self.args['latest_model_path'] = ''
-            self.args['latest_args_path'] = ''
-            self.args['iters_completed'] = 0
+            print("Initializing...")
+            self.__initialize(model, optimizer, game_env, args, n_parallel=n_parallel)
 
-        for iter in range(self.args['iters_completed'] + 1, self.args['n_iters'] - self.args['iters_completed'] + 1):
+        for iter in range(self.args['iters_completed'] + 1, self.args['n_iters'] + 1):
             print(f"Iter {iter} of {self.args['n_iters']}")
             hist_play = []
 
-            print("Self Play:")
             self.model.eval()
             if self.n_parallel:
+                if (self.args['n_selfPlay'] % self.args['n_parallel_games']) != 0:
+                    raise ValueError(f"'n_selfPlay' should be a multple of 'n_parallel_games'")
+                
+                print(f"Self Play: Playing {self.args['n_parallel_games']} games parallely")
                 for _ in (pbar:= tqdm(range(self.args['n_selfPlay'] // self.args['n_parallel_games']))):
                     hist_play += self.selfParallelPlay(pbar)
             else:
+                print(f"Self Play: Playing one game at a time")
                 for _ in (pbar:= tqdm(range(self.args['n_selfPlay']))):
                     hist_play += self.selfPlay(pbar)
             
@@ -185,8 +186,9 @@ class AlphaZero:
             
             print(f"Model saved at: {path}/****_{iter}_{self.game_env}.pt")
     
-    def load_and_resume(self, game_env, path):
+    def load_and_resume(self, game_env, path, train=False):
         self.reload = True
+        
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         arg_files = glob.glob(f"{path}/*.json")
@@ -209,11 +211,16 @@ class AlphaZero:
         
         self.net_model_loss = checkpoint['loss']
 
-        self.learn(
-            model, 
-            optimizer, 
-            game_env,  
-            args,
-            save_path=args['save_path'], 
-            n_parallel=args['n_parallel']
-        )
+        if train:
+            self.__initialize(model, optimizer, game_env, args, n_parallel=args['n_parallel'])
+            print("Resuming Training:")
+            self.learn(
+                model = self.model,
+                optimizer = self.optimizer,
+                game_env = self.game_env,
+                args = self.args,
+                save_path=args['save_path'], 
+                n_parallel=args['n_parallel']
+            )
+        else:
+            return model
