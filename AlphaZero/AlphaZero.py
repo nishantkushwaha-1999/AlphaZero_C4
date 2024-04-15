@@ -110,7 +110,7 @@ class AlphaZero:
     def train(self, gamebuffer, epoch):
         random.shuffle(gamebuffer)
         net_loss = 0
-        # for batch_Idx in (pbar:= tqdm(range(0, len(gamebuffer), self.args['batch_size']))):
+        
             pbar.set_description(f"Epoch {epoch}/{self.args['epochs']}")
             batch = gamebuffer[batch_Idx:min((len(gamebuffer) - 1), (batch_Idx + self.args['batch_size']))]
             try:
