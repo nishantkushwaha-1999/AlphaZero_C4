@@ -171,6 +171,7 @@ class AlphaZero:
             else:
                 path=save_path
             
+            self.args['save_path'] = save_path
             os.makedirs(path, exist_ok=True)
             
             torch.save(self.model.state_dict(), f"{path}/model_{iter}_{self.game_env}.pt")
@@ -224,7 +225,7 @@ class AlphaZero:
                 optimizer = self.optimizer,
                 game_env = self.game_env,
                 args = self.args,
-                save_path=args['save_path'], 
+                save_path=args['save_path'],
                 n_parallel=args['n_parallel']
             )
         else:
