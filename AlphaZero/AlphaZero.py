@@ -139,59 +139,7 @@ class AlphaZero:
         
         pbar.set_description(f"Epoch {epoch}/{self.args['epochs']} - loss: {net_loss / len(gamebuffer)}")
     
-    def learn(self, model, optimizer, game_env, args, save_path=None, n_parallel=False):
-        if not self.reload:
-            print("Initializing...")
-            self.__initialize(model, optimizer, game_env, args, n_parallel=n_parallel)
-
-        for iter in range(self.args['iters_completed'] + 1, self.args['n_iters'] + 1):
-            print(f"Iter {iter} of {self.args['n_iters']}")
-            hist_play = []
-
-            self.model.eval()
-            if self.n_parallel:
-                if (self.args['n_selfPlay'] % self.args['n_parallel_games']) != 0:
-                    raise ValueError(f"'n_selfPlay' should be a multple of 'n_parallel_games'")
-                
-                print(f"Self Play: Playing {self.args['n_parallel_games']} games parallely")
-                for _ in (pbar:= tqdm(range(self.args['n_selfPlay'] // self.args['n_parallel_games']))):
-                    hist_play += self.selfParallelPlay(pbar)
-            else:
-                print(f"Self Play: Playing one game at a time")
-                for _ in (pbar:= tqdm(range(self.args['n_selfPlay']))):
-                    hist_play += self.selfPlay(pbar)
-            
-            print("Model Train:")
-            print(f"Training on {len(hist_play)} game states")
-            self.model.train()
-            for epoch in range(self.args['epochs']):
-                self.train(hist_play, epoch)
-            
-            if save_path==None:
-                path = os.path.abspath(os.path.join(os.getcwd())) + '/saved_models'
-            else:
-                path=save_path
-            
-            self.args['save_path'] = save_path
-            os.makedirs(path, exist_ok=True)
-            
-            torch.save(self.model.state_dict(), f"{path}/model_{iter}_{self.game_env}.pt")
-            torch.save(self.optimizer.state_dict(), f"{path}/optimizer_{iter}_{self.game_env}.pt")
-            torch.save({
-                'model_state_dict': self.model.state_dict(),
-                'optimizer_state_dict': self.optimizer.state_dict(),
-                'loss': self.net_model_loss
-            }, f"{path}/fullModel_{iter}_{self.game_env}.pt")
-            
-            self.args['latest_model_path'] = f"{path}/fullModel_{iter}_{self.game_env}.pt"
-            self.args['latest_args_path'] = f'{path}/model_args_{self.game_env}.json'
-            self.args['iters_completed'] = iter
-            self.args['save_path'] = path
-            
-            with open(f'{path}/model_args_{self.game_env}.json', 'w') as fp:
-                json.dump(self.args, fp)
-            
-            print(f"Model saved at: {path}/****_{iter}_{self.game_env}.pt")
+    
     
     def load_and_resume(self, game_env, path, train=False):
         self.reload = True
