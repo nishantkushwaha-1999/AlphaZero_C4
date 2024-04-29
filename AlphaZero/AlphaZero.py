@@ -197,7 +197,7 @@ class AlphaZero:
         
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-        arg_files = glob.glob(f"Game Engine/*.json")
+        arg_files = glob.glob(f"{path}/*.json")
         with open(arg_files[0], 'r') as fp:
             args = json.loads(fp.read())
         
