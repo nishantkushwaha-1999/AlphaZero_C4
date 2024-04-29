@@ -12,9 +12,9 @@ from AlphaZero.monte_carlo_tree_search import MCTS
 class SPG:
     def __init__(self, game):
         self.state = game.initialize()
-        self.memory = []
         self.root = None
         self.node = None
+        self.memory = []
 
 class AlphaZero:
     def __init__(self):
@@ -23,9 +23,9 @@ class AlphaZero:
     def __initialize(self, model, optimizer, game_env, args, n_parallel=False):
         self.args = args
         self.model = model
-        self.optimizer = optimizer
         self.game_env = game_env
         self.n_parallel = n_parallel
+        self.optimizer = optimizer
 
         if not self.reload:
             self.args['latest_model_path'] = ''
@@ -42,7 +42,6 @@ class AlphaZero:
 
         while True:
             flip_state = self.game_env.change_perspective(state, player)
-            # action_probs = self.mcts.search(flip_state)
             action_probs = self.mcts.search(flip_state, player)
 
             memory.append((flip_state, action_probs, player))
@@ -198,7 +197,7 @@ class AlphaZero:
         
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-        arg_files = glob.glob(f"{path}/*.json")
+        arg_files = glob.glob(f"Game Engine/*.json")
         with open(arg_files[0], 'r') as fp:
             args = json.loads(fp.read())
         

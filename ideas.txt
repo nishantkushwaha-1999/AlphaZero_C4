@@ -1,8 +1,0 @@
-> change reward value to  be dynamic i.e., making the model learn quickly and not favour slow losses
-> C 1-6; helpful if 4
-> drichlet alpha - 0.71
-> dynamic temperature value - more exploration in intitial games and more exploitation in later phases of the games set temp to 1.1
-> Define resnet params
-
-
-> 800 sims when playing in reality and evaluating
