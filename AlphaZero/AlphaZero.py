@@ -211,7 +211,7 @@ class AlphaZero:
         
         optimizer = torch.optim.Adam(model.parameters(), lr=args['lr'], weight_decay=args['weight_decay'])
         
-        checkpoint = torch.load(args['latest_model_path'])
+        checkpoint = torch.load(args['latest_model_path'], map_location=device)
         model.load_state_dict(checkpoint['model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         

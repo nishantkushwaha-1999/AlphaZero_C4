@@ -88,6 +88,35 @@ class Game_C4:
                     return True
                     
         return False
+    
+    def check_win_and_type(self, state, action, player):
+        self.check_params(state=state, player=player, action=action)
+        # player = self.get_last_player(state, action)
+
+        for column in range(self.columns):
+            for row in range(self.rows - 3):
+                if state[row,column] == state[row+1,column] == state[row+2,column] == state[row+3,column] == player:
+                    return True, 'vertical'
+
+        # horizontal win
+        for row in range(self.rows):
+            for column in range(self.columns - 3):
+                if state[row,column] == state[row,column+1] == state[row,column+2] == state[row,column+3] == player:
+                    return True, 'horizontal'
+
+        # diagonal top left to bottom right
+        for row in range(self.rows - 3):
+            for column in range(self.columns - 3):
+                if state[row,column] == state[row+1,column+1] == state[row+2,column+2] == state[row+3,column+3] == player:
+                    return True, 'diagonal'
+
+        # diagonal bottom left to top right
+        for row in range(self.rows - 1,2,-1):
+            for column in range(self.columns - 3):
+                if state[row,column] == state[row-1,column+1] == state[row-2,column+2] == state[row-3,column+3] == player:
+                    return True, 'diagonal'
+                    
+        return False
         
     def get_last_player(self, state, action):
         if action == None:

@@ -2,6 +2,7 @@ import torch
 import json
 import glob
 import numpy as np
+from tqdm import tqdm
 from typing import Union
 from AlphaZero.monte_carlo_tree_search import MCTS
 from GameEnvironments.C4 import Game_C4
@@ -10,10 +11,9 @@ from utils.setup import check_base_models
 
 
 class Game(Game_C4):
-    def __init__(self, level: Union[int, None]=None):
+    def __init__(self, level: int):
         super().__init__()
-        if level != None:
-            self.engine = self.load_engine(level)
+        self.engine = self.load_engine(level)
 
     def load_engine(self, level: int):
         check_base_models("Game Engines")
@@ -31,11 +31,14 @@ class Game(Game_C4):
             device=device
         )
 
-        checkpoint = torch.load(f"Game Engines/Level{level}.pt")
+        checkpoint = torch.load(f"Game Engines/Level{level}.pt", map_location=device)
         model.load_state_dict(checkpoint['model_state_dict'])
         return model.eval()
     
-    def play(self):
+    def get_engine_(self):
+        return self.engine
+
+    def play(self, n_games, random=False):
         player = 1
         action = None
         game_c4 = Game_C4()
@@ -49,33 +52,33 @@ class Game(Game_C4):
         mcts = MCTS(game_c4, mcts_params, self.engine)
         state = game_c4.initialize()
 
-        while True:
-            if player == 1:
-                valid_moves = game_c4.get_valid_moves(state, player)
-                print("valid_moves", [i for i in range(game_c4.action_size) if valid_moves[i] == 1])
-                action = int(input(f"{player}:"))
-                player_name = "player"
+        if random:
+            history = []
+            for _ in tqdm(range(n_games)):
+                while True:
+                    if player == 1:
+                        action = np.random.randint(0, 13)
+                            
+                    else:
+                        flipped_state = game_c4.change_perspective(state, player)
+                        mcts_probs = mcts.search(flipped_state, player)
+                        action = np.argmax(mcts_probs)
+                        
+                    state = game_c4.get_next_state(state, action, player)
                     
-            else:
-                flipped_state = game_c4.change_perspective(state, player)
-                mcts_probs = mcts.search(flipped_state, player)
-                action = np.argmax(mcts_probs)
-                player_name = "bot"
-                
-            state = game_c4.get_next_state(state, action, player)
-            
-            value, is_terminal = game_c4.get_value_and_terminated(state, action, player)
-            
-            if is_terminal:
-                if value == 1:
-                    print(player, "won")
-                else:
-                    print("draw")
-                break
-                
-            player = game_c4.get_opponent(player)
-            print("Last Play:")
-            print("Player:", player_name, "Action:", action)
+                    value, is_terminal = game_c4.get_value_and_terminated(state, action, player)
+                    
+                    if is_terminal:
+                        _, win_type = game_c4.check_win_and_type(state, action, player)
+                        if value == 1:
+                            history.append((player, 1, win_type))
+                        else:
+                            history.append((player, 0, win_type))
+                        break
+                        
+                    player = game_c4.get_opponent(player)
+        
+        return history
     
 
 if __name__=="__main__":
