@@ -2,7 +2,6 @@ import os
 import glob
 import torch
 import json
-import copy
 import random
 import numpy as np
 from tqdm import tqdm
