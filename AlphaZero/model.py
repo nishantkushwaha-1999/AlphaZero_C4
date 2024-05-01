@@ -74,6 +74,6 @@ if __name__=="__main__":
     if torch.cuda.is_available():
         device = torch.device("cuda")
     
-    model = ResNet_C4((6,7), 7, 3, 64, device)
+    model = ResNet_C4((6,7), 14, 10, 64, device)
     architecture = summary(model, input_size=(16, 3, 6, 7), verbose=0)
     print(architecture)
