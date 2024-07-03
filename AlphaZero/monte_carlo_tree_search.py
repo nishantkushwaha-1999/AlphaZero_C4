@@ -71,9 +71,9 @@ class MCTS:
         if n_prallel == False:
             root = Node(self.game, self.args, state, player, visit_count=1)
             
-            # _, policy = self.model(
-            #     torch.tensor(self.game.get_encoded_state(state), device=self.model.device).unsqueeze(0)
-            # )
+            _, policy = self.model(
+                torch.tensor(self.game.get_encoded_state(state), device=self.model.device).unsqueeze(0)
+            )
             policy = torch.softmax(policy, axis=1).squeeze(0).cpu().numpy()
             policy = (1 - self.args['dirichlet_epsilon']) * policy + self.args['dirichlet_epsilon'] \
                 * np.random.dirichlet([self.args['dirichlet_alpha']] * self.game.action_size)

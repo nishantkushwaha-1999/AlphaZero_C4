@@ -1,0 +1,4 @@
+# Ignoring Files
+Game Engines/
+__pycache__/
+test.py
